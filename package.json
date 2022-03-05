@@ -1,0 +1,20 @@
+{
+  "name": "com.eternity714.enhancedscrollview",
+  "version": "1.0.1",
+  "displayName": "EnhancedScrollView",
+  "description": "",
+  "unity": "2019.3",
+  "unityRelease": "14f1",
+  "documentationUrl": "https://github.com/Eternity714/EnhancedScrollView/blob/master/README.md",
+  "licensesUrl": "https://github.com/Eternity714/EnhancedScrollView/blob/master/LICENSE",
+  "dependencies": {
+    "com.unity.ugui": "1.0.0"
+  },
+  "keywords": [
+    "UGUI"
+  ],
+  "author": {
+    "name": "Eternity714",
+    "email": "372929104@qq.com",
+  }
+}
