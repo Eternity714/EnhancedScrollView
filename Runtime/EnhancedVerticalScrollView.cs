@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.UI;
 
 public class EnhancedVerticalScrollView : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHandler
 {
@@ -19,7 +20,9 @@ public class EnhancedVerticalScrollView : MonoBehaviour, IBeginDragHandler, IDra
 
     public int currentCenterIndex { get; private set; } = 0;
 
-    public Func<GameObject> onGetObject;
+    public RectTransform content;
+
+    public Func<Transform, GameObject> onGetObject;
 
     public Action<GameObject> onReturnObject;
 
@@ -42,6 +45,7 @@ public class EnhancedVerticalScrollView : MonoBehaviour, IBeginDragHandler, IDra
     private RectTransform m_Transform;
 
     private float mCurrentDuration;     // tween已经过的时间
+
     private bool enableLerpTween = false;
     private float mOriginValue;
     private float mTargetValue;
@@ -58,7 +62,7 @@ public class EnhancedVerticalScrollView : MonoBehaviour, IBeginDragHandler, IDra
     private EnhancedItem curCenterItem;
 
     void Awake() {
-        m_Transform = transform as RectTransform;
+        m_Transform = content ?? transform as RectTransform;
     }
 
     // Update is called once per frame
@@ -96,8 +100,7 @@ public class EnhancedVerticalScrollView : MonoBehaviour, IBeginDragHandler, IDra
 
         for (int i = 0; i < count; i++)
         {
-            GameObject go = onGetObject();
-            go.transform.SetParent(m_Transform, false);
+            GameObject go = onGetObject(m_Transform);
             items[i] = new EnhancedItem() {
                 GameObject = go,
                 CenterOffset = dFactor * (i + 0.5f),
@@ -108,39 +111,41 @@ public class EnhancedVerticalScrollView : MonoBehaviour, IBeginDragHandler, IDra
     }
 
     private void TweenViewToTarget() {
-        var _speed = speed * 10f;
+        //var _speed = speed * 10f;
 
-        var value = 0f;
+        //var value = 0f;
 
-        if ((mTargetValue - mCurrentValue) > 0)
-        {
-            value = mCurrentValue + _speed;
-            value = Mathf.Min(value, mTargetValue);
-        }
-        else
-        {
-            value = mCurrentValue - _speed;
-            value = Mathf.Max(value, mTargetValue);
-        }
+        //if ((mTargetValue - mCurrentValue) > 0)
+        //{
+        //    value = mCurrentValue + _speed;
+        //    value = Mathf.Min(value, mTargetValue);
+        //}
+        //else
+        //{
+        //    value = mCurrentValue - _speed;
+        //    value = Mathf.Max(value, mTargetValue);
+        //}
 
-        UpdateView(value);
-        if (value == mTargetValue)
-        {
-            enableLerpTween = false;
-            OnTweenOver();
-        }
-
-        //var duration = Mathf.Min(mCurrentDuration + Time.deltaTime, lerpDuration);
-        //Debug.Log($"{mCurrentDuration + Time.deltaTime} {lerpDuration} {duration}");
-        //mCurrentDuration = duration;
-        //float percent = duration / lerpDuration;
-        //float value = Mathf.Lerp(mOriginValue, mTargetValue, percent);
         //UpdateView(value);
-        //if (mCurrentDuration >= lerpDuration)
+
+        //Debug.Log($"ysf:  aaa  {value} {mTargetValue} {value - mTargetValue}");
+        //if (value == mTargetValue)
         //{
         //    enableLerpTween = false;
         //    OnTweenOver();
         //}
+
+        var duration = Mathf.Min(mCurrentDuration + Time.deltaTime, lerpDuration);
+        mCurrentDuration = duration;
+        float percent = duration / lerpDuration;
+        float value = Mathf.Lerp(mOriginValue, mTargetValue, percent);
+        UpdateView(value);
+
+        if (mCurrentDuration >= lerpDuration)
+        {
+            enableLerpTween = false;
+            OnTweenOver();
+        }
     }
 
     private void LerpTweenToTarget(float originValue, float targetValue, bool needTween)
@@ -169,16 +174,17 @@ public class EnhancedVerticalScrollView : MonoBehaviour, IBeginDragHandler, IDra
         for (int i = 0; i < items.Length; i++)
         {
             var item = items[i];
+            var tran = item.GameObject.transform;
             var time = (item.CenterOffset - fValue);
 
             var dataIndex = Mathf.RoundToInt(((time - Mathf.FloorToInt(time)) + fValue - 0.5f) / dFactor);
 
-            float xValue = xPositionCurve.Evaluate(time) * width * 0.5f;
             float yValue = (yPositionCurve.Evaluate(time) - 0.5f) * height;
             float scaleValue = scaleCurve.Evaluate(time);
             float depthValue = depthCurve.Evaluate(time);
 
-            var tran = item.GameObject.transform;
+            float xValue = width * 0.5f - LayoutUtility.GetPreferredWidth(tran as RectTransform) * scaleValue * 0.5f;
+
             tran.localPosition = new Vector3(xValue, yValue, 0);
             tran.localScale = new Vector3(scaleValue, scaleValue, 1);
             tran.SetSiblingIndex((int)(depthValue / dFactor));
@@ -192,6 +198,8 @@ public class EnhancedVerticalScrollView : MonoBehaviour, IBeginDragHandler, IDra
             {
                 tran.localScale = Vector3.zero;
             }
+
+            var w = LayoutUtility.GetPreferredWidth(tran as RectTransform);
         }
 
         int closestIndex = GetClosestIndex(out var _);
@@ -209,6 +217,8 @@ public class EnhancedVerticalScrollView : MonoBehaviour, IBeginDragHandler, IDra
     private void OnTweenOver()
     {
         int closestIndex = GetClosestIndex(out var offset);
+
+        if (Mathf.Abs(offset) < 1e-6) return;
 
         mOriginValue = mCurrentValue;
         float target = mCurrentValue + offset;
