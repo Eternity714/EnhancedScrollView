@@ -210,7 +210,7 @@ public class EnhancedVerticalScrollView : MonoBehaviour, IBeginDragHandler, IDra
 
         if (preCenterItem != null)
             onSelected(preCenterItem.GameObject, false);
-        if (curCenterItem != null)
+        if (curCenterItem != null && (totalCount < 0 || (curCenterItem.DataIndex >= 0 && curCenterItem.DataIndex < totalCount)))
             onSelected(curCenterItem.GameObject, true);
     }
 
@@ -232,7 +232,7 @@ public class EnhancedVerticalScrollView : MonoBehaviour, IBeginDragHandler, IDra
         if (preCenterItem != null)
             onSelected(preCenterItem.GameObject, false);
         if (curCenterItem != null)
-            onSelected(preCenterItem.GameObject, true);
+            onSelected(curCenterItem.GameObject, true);
     }
 
     public void ScrollToTarget(GameObject go)
