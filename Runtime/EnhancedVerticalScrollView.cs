@@ -76,6 +76,9 @@ public class EnhancedVerticalScrollView : MonoBehaviour, IBeginDragHandler, IDra
 
     public void RefillCells()
     {
+        preCenterItem = null;
+        curCenterItem = null;
+
         if (items != null)
         {
             for (int i = items.Length - 1; i >= 0; i--)
