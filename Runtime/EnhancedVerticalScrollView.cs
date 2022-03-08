@@ -61,6 +61,8 @@ public class EnhancedVerticalScrollView : MonoBehaviour, IBeginDragHandler, IDra
     private EnhancedItem preCenterItem;
     private EnhancedItem curCenterItem;
 
+    private bool draging = false;
+
     void Awake() {
         m_Transform = content ?? transform as RectTransform;
     }
@@ -114,30 +116,6 @@ public class EnhancedVerticalScrollView : MonoBehaviour, IBeginDragHandler, IDra
     }
 
     private void TweenViewToTarget() {
-        //var _speed = speed * 10f;
-
-        //var value = 0f;
-
-        //if ((mTargetValue - mCurrentValue) > 0)
-        //{
-        //    value = mCurrentValue + _speed;
-        //    value = Mathf.Min(value, mTargetValue);
-        //}
-        //else
-        //{
-        //    value = mCurrentValue - _speed;
-        //    value = Mathf.Max(value, mTargetValue);
-        //}
-
-        //UpdateView(value);
-
-        //Debug.Log($"ysf:  aaa  {value} {mTargetValue} {value - mTargetValue}");
-        //if (value == mTargetValue)
-        //{
-        //    enableLerpTween = false;
-        //    OnTweenOver();
-        //}
-
         var duration = Mathf.Min(mCurrentDuration + Time.deltaTime, lerpDuration);
         mCurrentDuration = duration;
         float percent = duration / lerpDuration;
@@ -205,28 +183,34 @@ public class EnhancedVerticalScrollView : MonoBehaviour, IBeginDragHandler, IDra
             var w = LayoutUtility.GetPreferredWidth(tran as RectTransform);
         }
 
-        int closestIndex = GetClosestIndex(out var _);
+        if (draging)
+        {
+            int closestIndex = GetClosestIndex(out var _);
 
-        preCenterItem = curCenterItem;
-        curCenterItem = items[closestIndex];
-        currentCenterIndex = curCenterItem.DataIndex;
+        
+            preCenterItem = curCenterItem;
+            curCenterItem = items[closestIndex];
+            currentCenterIndex = curCenterItem.DataIndex;
 
-        if (preCenterItem != null)
-            onSelected(preCenterItem.GameObject, false);
-        if (curCenterItem != null && (totalCount < 0 || (curCenterItem.DataIndex >= 0 && curCenterItem.DataIndex < totalCount)))
-            onSelected(curCenterItem.GameObject, true);
+            if (preCenterItem != null)
+                onSelected(preCenterItem.GameObject, false);
+            if (curCenterItem != null && (totalCount < 0 || (curCenterItem.DataIndex >= 0 && curCenterItem.DataIndex < totalCount)))
+                onSelected(curCenterItem.GameObject, true);
+        }
     }
 
     private void OnTweenOver()
     {
+        draging = false;
         int closestIndex = GetClosestIndex(out var offset);
 
-        if (Mathf.Abs(offset) < 1e-6) return;
+        if (Mathf.Abs(offset) > 1e-6)
+        {
+            mOriginValue = mCurrentValue;
+            float target = mCurrentValue + offset;
 
-        mOriginValue = mCurrentValue;
-        float target = mCurrentValue + offset;
-
-        LerpTweenToTarget(mOriginValue, target, true);
+            LerpTweenToTarget(mOriginValue, target, true);
+        }
 
         preCenterItem = curCenterItem;
         curCenterItem = items[closestIndex];
@@ -271,7 +255,7 @@ public class EnhancedVerticalScrollView : MonoBehaviour, IBeginDragHandler, IDra
 
     public virtual void OnBeginDrag(PointerEventData eventData)
     {
-        
+        draging = true;
     }
 
     public virtual void OnDrag(PointerEventData eventData)
