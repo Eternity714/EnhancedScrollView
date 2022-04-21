@@ -1,16 +1,21 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
 
 public class EnhancedVerticalScrollView : MonoBehaviour, IBeginDragHandler, IDragHandler, IEndDragHandler
 {
+    [SerializeField]
+    private RectTransform content;
+    private RectTransform m_Transform;
+
     public int totalCount = -1;
 
     public int itemCount = 5;
+
+    public int currentCenterIndex { get; private set; } = 0;
 
     [Tooltip("滚动速度")]
     public float speed = 0.006f;       // 滚动速度
@@ -18,20 +23,21 @@ public class EnhancedVerticalScrollView : MonoBehaviour, IBeginDragHandler, IDra
     [Tooltip("插值动画的最大时间")]
     public float lerpDuration = 1.0f;   // 插值动画的最大时间
 
-    public int currentCenterIndex { get; private set; } = 0;
-
-    public RectTransform content;
-
     public Func<Transform, GameObject> onGetObject;
 
     public Action<GameObject> onReturnObject;
 
     public Action<GameObject, int> onProvideData;
 
-    public Action<GameObject, bool> onSelected;
+    public Action<GameObject> onSelected;
 
-    // item的x轴位置曲线
-    public AnimationCurve xPositionCurve = AnimationCurve.Constant(0, 1, 0);
+    public Action<PointerEventData> onBeginDrag;
+
+    public Action<PointerEventData> onEndDrag;
+
+    public Action<PointerEventData> onDrag;
+
+    public Action onTweenOver;
 
     // item的y轴位置曲线
     public AnimationCurve yPositionCurve = new AnimationCurve(new Keyframe(0, 1), new Keyframe(1, 0)) { preWrapMode = WrapMode.Loop, postWrapMode = WrapMode.Loop };
@@ -42,28 +48,24 @@ public class EnhancedVerticalScrollView : MonoBehaviour, IBeginDragHandler, IDra
     // item的深度曲线, 注意:曲线顶峰需要和中心item对齐
     public AnimationCurve depthCurve = new AnimationCurve(new Keyframe(0, 0), new Keyframe(0.5f, 1), new Keyframe(1, 0));
 
-    private RectTransform m_Transform;
-
-    private float mCurrentDuration;     // tween已经过的时间
-
     private bool enableLerpTween = false;
+    private float mCurrentDuration;     // tween已经过的时间
     private float mOriginValue;
     private float mTargetValue;
     private float mCurrentValue = 0f;
     private float mMinValue = 0f;
     private float mMaxValue = 0f;
 
-    private int mCenterIndex = 0;
+    private float mCenterValue = 0.5f;
+
     private float dFactor = 0.2f;
 
     private EnhancedItem[] items;
 
-    private EnhancedItem preCenterItem;
-    private EnhancedItem curCenterItem;
 
-    private bool draging = false;
-
-    void Awake() {
+    // Start is called before the first frame update
+    void Awake()
+    {
         m_Transform = content ?? transform as RectTransform;
     }
 
@@ -76,26 +78,29 @@ public class EnhancedVerticalScrollView : MonoBehaviour, IBeginDragHandler, IDra
         }
     }
 
+    void OnDestroy()
+    {
+        ClearCells();
+    }
+
+    void ClearCells()
+    {
+        if (items == null) return;
+        for (int i = items.Length - 1; i >= 0; i--)
+        {
+            if (items[i].GameObject == null) continue;
+            onReturnObject(items[i].GameObject);
+        }
+        items = null;
+    }
+
     public void RefillCells()
     {
-        preCenterItem = null;
-        curCenterItem = null;
-
-        if (items != null)
-        {
-            for (int i = items.Length - 1; i >= 0; i--)
-            {
-                onReturnObject(items[i].GameObject);
-            }
-            items = null;
-        }
+        ClearCells();
 
         int count = Mathf.Max(5, itemCount);
         items = new EnhancedItem[count];
-
         dFactor = 1f / count;
-
-        mCenterIndex = count / 2;
 
         if (totalCount >= 0)
         {
@@ -106,136 +111,21 @@ public class EnhancedVerticalScrollView : MonoBehaviour, IBeginDragHandler, IDra
         for (int i = 0; i < count; i++)
         {
             GameObject go = onGetObject(m_Transform);
-            items[i] = new EnhancedItem() {
+            items[i] = new EnhancedItem()
+            {
                 GameObject = go,
                 CenterOffset = dFactor * (i + 0.5f),
             };
         }
 
         LerpTweenToTarget(0.0f, 0.0f, false);
-    }
-
-    private void TweenViewToTarget() {
-        var duration = Mathf.Min(mCurrentDuration + Time.deltaTime, lerpDuration);
-        mCurrentDuration = duration;
-        float percent = duration / lerpDuration;
-        float value = Mathf.Lerp(mOriginValue, mTargetValue, percent);
-        UpdateView(value);
-
-        if (mCurrentDuration >= lerpDuration)
-        {
-            enableLerpTween = false;
-            OnTweenOver();
-        }
-    }
-
-    private void LerpTweenToTarget(float originValue, float targetValue, bool needTween)
-    {
-        if (needTween)
-        {
-            mOriginValue = originValue;
-            mTargetValue = targetValue;
-            mCurrentDuration = 0.0f;
-        }
-        else
-        {
-            mOriginValue = mTargetValue;
-            UpdateView(targetValue);
-        }
-        enableLerpTween = needTween;
-    }
-
-    private void UpdateView(float fValue) {
-        var rect = m_Transform.rect;
-        var width = rect.width;
-        var height = rect.height;
-
-        mCurrentValue = fValue;
-
-        for (int i = 0; i < items.Length; i++)
-        {
-            var item = items[i];
-            var tran = item.GameObject.transform;
-            var time = (item.CenterOffset - fValue);
-
-            var dataIndex = Mathf.RoundToInt(((time - Mathf.FloorToInt(time)) + fValue - 0.5f) / dFactor);
-
-            float yValue = (yPositionCurve.Evaluate(time) - 0.5f) * height;
-            float scaleValue = scaleCurve.Evaluate(time);
-            float depthValue = depthCurve.Evaluate(time);
-
-            float xValue = width * 0.5f - LayoutUtility.GetPreferredWidth(tran as RectTransform) * scaleValue * 0.5f;
-
-            tran.localPosition = new Vector3(xValue, yValue, 0);
-            tran.localScale = new Vector3(scaleValue, scaleValue, 1);
-            tran.SetSiblingIndex((int)(depthValue / dFactor));
-
-            item.DataIndex = dataIndex;
-            if (totalCount < 0 || (dataIndex >= 0 && dataIndex < totalCount))
-            {
-                onProvideData(item.GameObject, dataIndex);
-            }
-            else
-            {
-                tran.localScale = Vector3.zero;
-            }
-
-            var w = LayoutUtility.GetPreferredWidth(tran as RectTransform);
-        }
-
-        if (draging)
-        {
-            int closestIndex = GetClosestIndex(out var _);
-
-        
-            preCenterItem = curCenterItem;
-            curCenterItem = items[closestIndex];
-            currentCenterIndex = curCenterItem.DataIndex;
-
-            if (preCenterItem != null)
-                onSelected(preCenterItem.GameObject, false);
-            if (curCenterItem != null && (totalCount < 0 || (curCenterItem.DataIndex >= 0 && curCenterItem.DataIndex < totalCount)))
-                onSelected(curCenterItem.GameObject, true);
-        }
-    }
-
-    private void OnTweenOver()
-    {
-        draging = false;
-        int closestIndex = GetClosestIndex(out var offset);
-
-        if (Mathf.Abs(offset) > 1e-6)
-        {
-            mOriginValue = mCurrentValue;
-            float target = mCurrentValue + offset;
-
-            LerpTweenToTarget(mOriginValue, target, true);
-        }
-
-        preCenterItem = curCenterItem;
-        curCenterItem = items[closestIndex];
-        currentCenterIndex = curCenterItem.DataIndex;
-
-        if (preCenterItem != null)
-            onSelected(preCenterItem.GameObject, false);
-        if (curCenterItem != null)
-            onSelected(curCenterItem.GameObject, true);
-    }
-
-    public void ScrollToTarget(GameObject go)
-    {
-        if (curCenterItem.GameObject == go) return;
-
-        preCenterItem = curCenterItem;
-        curCenterItem = items.First(item => item.GameObject == go);
-
-        var offset = GetToCenterOffset(curCenterItem);
-
-        LerpTweenToTarget(mCurrentValue, mCurrentValue + offset, true);
+        OnTweenOver();
     }
 
     public void ScrollToCell(int index, bool needTween)
     {
+        if (index == currentCenterIndex) return;
+
         if (totalCount >= 0)
         {
             if (index < 0)
@@ -250,44 +140,135 @@ public class EnhancedVerticalScrollView : MonoBehaviour, IBeginDragHandler, IDra
             }
         }
 
-        if (index == currentCenterIndex) return;
-
         LerpTweenToTarget(mCurrentValue, mCurrentValue + (index - currentCenterIndex) * dFactor, needTween);
-    }
 
-    public virtual void OnBeginDrag(PointerEventData eventData)
-    {
-        draging = true;
-    }
-
-    public virtual void OnDrag(PointerEventData eventData)
-    {
-        var delta = eventData.delta;
-        if (Mathf.Abs(delta.y) > 0.0f)
+        if (!needTween)
         {
-            mCurrentValue += delta.y * speed;
-
-            if (totalCount >= 0)
-            {
-                mCurrentValue = Mathf.Clamp(mCurrentValue, mMinValue - dFactor, mMaxValue + dFactor);
-            }
-            LerpTweenToTarget(0.0f, mCurrentValue, false);
+            OnTweenOver();
         }
     }
 
-    public virtual void OnEndDrag(PointerEventData eventData)
+    private void LerpTweenToTarget(float originValue, float targetValue, bool needTween)
     {
-        if (totalCount > 0)
+        if (needTween)
         {
-            var fValue = Mathf.Clamp(mCurrentValue, mMinValue, mMaxValue);
-            if (Mathf.Abs(fValue - mCurrentValue) > 1.0e-6)
+            mOriginValue = originValue;
+            mTargetValue = targetValue;
+            mCurrentDuration = 0f;
+        }
+        else
+        {
+            mOriginValue = mTargetValue;
+            UpdateView(targetValue);
+        }
+
+        enableLerpTween = needTween;
+    }
+
+    private void TweenViewToTarget()
+    {
+        mCurrentDuration += Time.deltaTime;
+        float percent = mCurrentDuration / lerpDuration;
+        float value = Mathf.Lerp(mOriginValue, mTargetValue, Mathf.Min(1f, percent));
+        UpdateView(value);
+
+        if (mCurrentDuration >= lerpDuration)
+        {
+            enableLerpTween = false;
+            mCurrentDuration = 0f;
+            OnTweenOver();
+        }
+    }
+
+    private void OnTweenOver()
+    {
+        onTweenOver?.Invoke();
+    }
+
+    private void UpdateView(float fValue)
+    {
+        var rect = content.rect;
+        var width = rect.width;
+        var height = rect.height;
+
+        mCurrentValue = fValue;
+
+        for (int i = 0; i < items.Length; i++)
+        {
+            var item = items[i];
+            var tran = item.GameObject.transform;
+            var time = (item.CenterOffset - fValue);
+            var dataIndex = Mathf.RoundToInt(((time - Mathf.FloorToInt(time)) + fValue - 0.5f) / dFactor);
+
+            float yValue = (yPositionCurve.Evaluate(time) - 0.5f) * height;
+            float scaleValue = scaleCurve.Evaluate(time);
+            float depthValue = depthCurve.Evaluate(time);
+
+            float xValue = 0;
+
+            tran.localPosition = new Vector3(xValue, yValue, 0);
+            tran.localScale = new Vector3(scaleValue, scaleValue, 1);
+            tran.SetSiblingIndex((int)(depthValue / dFactor));
+
+            item.DataIndex = dataIndex;
+
+
+            if (totalCount >= 0 && (dataIndex < 0 || dataIndex >= totalCount))
             {
-                LerpTweenToTarget(mCurrentValue, fValue, true);
+                tran.localScale = Vector3.zero;
             }
-            else
+        }
+
+        int closestIndex = GetClosestIndex(out var _);
+        var centerItem = items[closestIndex];
+        if (centerItem.DataIndex != currentCenterIndex)
+        {
+            currentCenterIndex = centerItem.DataIndex;
+            onSelected(centerItem.GameObject);
+        }
+
+        for (int i = 0; i < items.Length; i++)
+        {
+            var item = items[i];
+            onProvideData(item.GameObject, item.DataIndex);
+        }
+    }
+
+    public void OnBeginDrag(PointerEventData eventData)
+    {
+        // todo
+        onBeginDrag?.Invoke(eventData);
+    }
+
+    public void OnDrag(PointerEventData eventData)
+    {
+        var delta = eventData.delta;
+        if (Mathf.Abs(delta.y) > 1.0e-6)
+        {
+            var fValue = mCurrentValue + delta.y * speed;
+            if (totalCount > 0)
             {
-                OnTweenOver();
+                fValue = Mathf.Clamp(fValue, mMinValue - dFactor, mMaxValue + dFactor);
             }
+            LerpTweenToTarget(0.0f, fValue, false);
+        }
+
+        onDrag?.Invoke(eventData);
+    }
+
+    public void OnEndDrag(PointerEventData eventData)
+    {
+        onEndDrag?.Invoke(eventData);
+        var closest = GetClosestIndex(out float offset);
+        var fValue = mCurrentValue + offset;
+        if (totalCount >= 0)
+        {
+            fValue = Mathf.Clamp(fValue, mMinValue, mMaxValue);
+        }
+
+        if (Mathf.Abs(fValue - mCurrentValue) > 1.0e-6)
+        {
+            LerpTweenToTarget(mCurrentValue, fValue, true);
         }
         else
         {
@@ -298,21 +279,18 @@ public class EnhancedVerticalScrollView : MonoBehaviour, IBeginDragHandler, IDra
     private int GetClosestIndex(out float offset)
     {
         int closestIndex = 0;
-        float min = float.MaxValue;
-
+        offset = float.MaxValue;
         for (int i = 0; i < items.Length; i++)
         {
             var item = items[i];
             var dis = GetToCenterOffset(item);
-
-            if (Mathf.Abs(dis) < Mathf.Abs(min))
+            if (Mathf.Abs(dis) < Mathf.Abs(offset))
             {
                 closestIndex = i;
-                min = dis;
+                offset = dis;
             }
         }
 
-        offset = min;
         return closestIndex;
     }
 
@@ -321,7 +299,7 @@ public class EnhancedVerticalScrollView : MonoBehaviour, IBeginDragHandler, IDra
         var o = mCurrentValue - item.CenterOffset;
         var value = o - (int)o;
         var tmp = value + (value < 0 ? 1 : 0);
-        var dis = 0.5f - tmp;
+        var dis = mCenterValue - tmp;
         return dis;
     }
 
